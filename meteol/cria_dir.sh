@@ -14,6 +14,9 @@ hdfs dfs -chmod 775 /hdfs/data/order
 hdfs dfs -mkdir /hdfs/data/order/tmp
 hdfs dfs -chmod 775 /hdfs/data/order/tmp
 
+hdfs dfs -mkdir /hdfs/data/order/tmp/dados.zip
+hdfs dfs -chmod 775 /hdfs/data/order/tmp/dados.zip
+
 hdfs dfs -mkdir /hdfs/data/order/tmp/dados_temp
 hdfs dfs -chmod 775 /hdfs/data/order/tmp/dados_temp
 
