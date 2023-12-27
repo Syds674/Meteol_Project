@@ -21,7 +21,7 @@ def get_csv(file_path):
     return df
 
 # Caminho local para salvar o arquivo ZIP
-local_zip_path = "/hdfs/data/order/tmp/dadoszip"
+local_zip_path = "/hdfs/data/order/tmp/dados_brutos"
 
 # Caminho local para extrair os arquivos CSV
 local_extract_path = "/hdfs/data/order/tmp/dados_temp"
