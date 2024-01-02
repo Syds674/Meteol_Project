@@ -59,11 +59,18 @@ except Exception as e:
     print("ERRO:", e)
 
 finally:
-    # Verificar a existência do diretório antes de removê-lo
-    if spark._jvm.java.io.File(local_zip_path).exists():
-        spark._jvm.java.io.File(local_zip_path).delete()
+    try:
+        # Remover os arquivos temporários
+        local_extract_path_obj = spark._jvm.java.nio.file.Paths.get(local_extract_path)
+        if local_extract_path_obj.toFile().exists():
+            for file in spark._jvm.java.nio.file.Files.list(local_extract_path_obj):
+                spark._jvm.java.nio.file.Files.delete(file)
+            spark._jvm.java.nio.file.Files.delete(local_extract_path_obj)
 
-    # Remover os arquivos temporários
-    for file in spark._jvm.java.io.File(local_extract_path).listFiles():
-        file.delete()
-    spark._jvm.java.io.File(local_extract_path).delete()
+        # Verificar a existência do diretório antes de removê-lo
+        local_zip_path_obj = spark._jvm.java.nio.file.Paths.get(local_zip_path)
+        if local_zip_path_obj.toFile().exists():
+            spark._jvm.java.nio.file.Files.delete(local_zip_path_obj)
+    except Exception as e:
+        print("ERRO ao remover arquivos temporários:", e)
+
