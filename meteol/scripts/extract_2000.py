@@ -1,17 +1,19 @@
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+from pyspark.sql import functions as F
 import requests
 from zipfile import ZipFile
-import os
+
+# Criar SparkSession
+spark = SparkSession.builder.appName('Get - CSV').getOrCreate()
 
 def download_and_extract_csv(url, local_zip_path, local_extract_path):
     # Baixar o arquivo ZIP
     response = requests.get(url)
 
     # Certificar-se de que o diretório pai existe
-    local_zip_dir = os.path.dirname(local_zip_path)
-    if not os.path.exists(local_zip_dir):
-        print("Diretório dados_brutos não existe")
-        os.makedirs(local_zip_dir)
+    local_zip_dir = spark._jvm.java.io.File(local_zip_path).getParent()
+    local_zip_dir.mkdirs()
 
     with open(local_zip_path, "wb") as zip_file:
         zip_file.write(response.content)
@@ -21,10 +23,7 @@ def download_and_extract_csv(url, local_zip_path, local_extract_path):
         zip_ref.extractall(local_extract_path)
 
 def get_csv(file_path):
-    spark = SparkSession.builder.appName('Get - CSV').getOrCreate()
-
     df = spark.read.format("csv").option("header", True).load(file_path)
-
     return df
 
 # Caminho local para salvar o arquivo ZIP
@@ -43,14 +42,14 @@ try:
     download_and_extract_csv("https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip".format(date_link), local_zip_path, local_extract_path)
 
     # Listar arquivos extraídos
-    csv_files = [f for f in os.listdir(local_extract_path) if f.endswith('.CSV')]
+    csv_files = [f for f in spark._jvm.java.io.File(local_extract_path).list() if f.endswith('.CSV')]
 
     for csv_file in csv_files:
         # Caminho completo do arquivo local
-        local_file_path = os.path.join(local_extract_path, csv_file)
+        local_file_path = spark._jvm.java.io.File(local_extract_path, csv_file).getPath()
 
         # Caminho no HDFS para armazenar os arquivos CSV com seus próprios nomes
-        hdfs_file_path = os.path.join(hdfs_path, csv_file)
+        hdfs_file_path = spark._jvm.java.io.Path(hdfs_path, csv_file).toString()
 
         # Ler CSV e salvar no HDFS
         df = get_csv(local_file_path)
@@ -61,11 +60,10 @@ except Exception as e:
 
 finally:
     # Verificar a existência do diretório antes de removê-lo
-    if os.path.exists(local_zip_path):
-        os.remove(local_zip_path)
+    if spark._jvm.java.io.File(local_zip_path).exists():
+        spark._jvm.java.io.File(local_zip_path).delete()
 
     # Remover os arquivos temporários
-    for root, dirs, files in os.walk(local_extract_path):
-        for file in files:
-            os.remove(os.path.join(root, file))
-    os.rmdir(local_extract_path)
+    for file in spark._jvm.java.io.File(local_extract_path).listFiles():
+        file.delete()
+    spark._jvm.java.io.File(local_extract_path).delete()
