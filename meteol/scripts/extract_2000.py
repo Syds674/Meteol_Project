@@ -3,6 +3,8 @@ from pyspark.sql.functions import col
 from pyspark.sql import functions as F
 import requests
 from zipfile import ZipFile
+import os
+import shutil
 
 # Criar SparkSession
 spark = SparkSession.builder.appName('Get - CSV').getOrCreate()
@@ -12,7 +14,7 @@ def download_and_extract_csv(url, local_zip_path, local_extract_path):
     response = requests.get(url)
 
     # Certificar-se de que o diretório pai existe
-    local_zip_dir = spark._jvm.java.io.File(local_zip_path).getParent()
+    local_zip_dir = spark._jvm.java.io.File(local_zip_path).getParentFile()
     local_zip_dir.mkdirs()
 
     with open(local_zip_path, "wb") as zip_file:
@@ -61,16 +63,11 @@ except Exception as e:
 finally:
     try:
         # Remover os arquivos temporários
-        local_extract_path_obj = spark._jvm.java.nio.file.Paths.get(local_extract_path)
-        if local_extract_path_obj.toFile().exists():
-            for file in spark._jvm.java.nio.file.Files.list(local_extract_path_obj):
-                spark._jvm.java.nio.file.Files.delete(file)
-            spark._jvm.java.nio.file.Files.delete(local_extract_path_obj)
+        if os.path.exists(local_extract_path):
+            shutil.rmtree(local_extract_path)
 
-        # Verificar a existência do diretório antes de removê-lo
-        local_zip_path_obj = spark._jvm.java.nio.file.Paths.get(local_zip_path)
-        if local_zip_path_obj.toFile().exists():
-            spark._jvm.java.nio.file.Files.delete(local_zip_path_obj)
+        # Verificar a existência do arquivo antes de removê-lo
+        if os.path.exists(local_zip_path):
+            os.remove(local_zip_path)
     except Exception as e:
         print("ERRO ao remover arquivos temporários:", e)
-
