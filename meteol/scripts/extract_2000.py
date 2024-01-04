@@ -29,7 +29,7 @@ def get_csv(file_path):
     return df
 
 # Caminho local para salvar o arquivo ZIP
-local_zip_path = "/hdfs/data/order/tmp/dados_brutos.zip"
+local_zip_path = "/hdfs/data/order/tmp/dados_brutos"
 
 # Caminho local para extrair os arquivos CSV
 local_extract_path = "/hdfs/data/order/tmp/dados_temp"
@@ -57,6 +57,8 @@ try:
         df = get_csv(local_file_path)
         df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(hdfs_file_path)
 
+    print("ARQUIVOS CSV BAIXADOS NO HDFS")
+
 except Exception as e:
     print("ERRO:", e)
 
@@ -69,5 +71,7 @@ finally:
         # Verificar a existência do arquivo antes de removê-lo
         if os.path.exists(local_zip_path):
             os.remove(local_zip_path)
+        
+        print("ARQUIVOS TEMPORÁRIOS EXCLUÍDOS")
     except Exception as e:
         print("ERRO ao remover arquivos temporários:", e)
