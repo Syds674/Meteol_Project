@@ -41,19 +41,24 @@ def get_csv(file_path):
         print("ERRO na leitura do CSV:", e)
         raise  # Propaga a exceção
 
+
+# Ano
+date_link = "2000"
+
+# Caminho local para salvar o arquivo ZIP
+local_zip_path = "/hdfs/data/order/tmp/dados_brutos"
+
+# Caminho local para extrair os arquivos CSV
+local_extract_path = "/hdfs/data/order/tmp/dados_temp"
+
+# Caminho no HDFS para armazenar os arquivos CSV
+hdfs_path = "/hdfs/data/order/{}".format(date_link)
+
+
 try:
-    # Caminho local para salvar o arquivo ZIP
-    local_zip_path = "hdfs:///hdfs/data/order/tmp/dados_brutos/{}.zip".format(date_link)
-
-    # Caminho local para extrair os arquivos CSV
-    local_extract_path = "hdfs:///hdfs/data/order/tmp/dados_temp"
-
-    # Caminho no HDFS para armazenar os arquivos CSV
-    hdfs_path = "hdfs:///hdfs/data/order/2000"
-
     # Baixar o CSV diretamente para a pasta local no HDFS
     download_data("https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip".format(date_link), local_zip_path)
-
+    
     # Extrair o CSV
     extract_csv(local_zip_path, local_extract_path)
 
@@ -78,14 +83,14 @@ except Exception as e:
 
 finally:
     try:
-        # Remover os arquivos temporários
-        if spark._jvm.java.nio.file.Files.exists(spark._jvm.java.nio.file.Paths.get(local_extract_path)):
-            spark._jvm.java.nio.file.Files.delete(spark._jvm.java.nio.file.Paths.get(local_extract_path))
+        # Remover os arquivos temporários no HDFS
+        if spark._jvm.java.io.File(local_extract_path).exists():
+            spark._jvm.org.apache.hadoop.fs.FileUtil.fullyDelete(spark._jvm.org.apache.hadoop.fs.Path(local_extract_path))
 
-        # Verificar a existência do arquivo antes de removê-lo
-        if spark._jvm.java.nio.file.Files.exists(spark._jvm.java.nio.file.Paths.get(local_zip_path)):
-            spark._jvm.java.nio.file.Files.delete(spark._jvm.java.nio.file.Paths.get(local_zip_path))
-        
+        # Verificar a existência do arquivo antes de removê-lo no HDFS
+        if spark._jvm.java.io.File(local_zip_path).exists():
+            spark._jvm.org.apache.hadoop.fs.FileUtil.fullyDelete(spark._jvm.org.apache.hadoop.fs.Path(local_zip_path))
+
         print("ARQUIVOS TEMPORÁRIOS EXCLUÍDOS")
     except Exception as e:
         print("ERRO ao remover arquivos temporários:", e)
@@ -93,3 +98,4 @@ finally:
     finally:
         # Encerrar a SparkSession
         spark.stop()
+
