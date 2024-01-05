@@ -1,73 +1,56 @@
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
+from pyspark import SparkFiles
 import requests
 from zipfile import ZipFile
-import shutil
+
+# Inicializa a sessão do Spark
+spark = SparkSession.builder.appName("YourAppName").getOrCreate()
 
 def download_data(url, local_zip_path):
-    # Criar SparkSession
-    spark = SparkSession.builder.appName('Download - CSV').getOrCreate()
-
     try:
         # Baixar o arquivo ZIP
         response = requests.get(url)
 
         # Certificar-se de que o diretório pai existe
-        local_zip_dir = spark._jvm.java.io.File(local_zip_path).getParentFile()
-        local_zip_dir.mkdirs()
+        local_zip_dir = SparkFiles.getRootDirectory()
+        local_zip_path = f"{local_zip_dir}/{local_zip_path}"
 
         with open(local_zip_path, "wb") as zip_file:
             zip_file.write(response.content)
 
     except Exception as e:
         print("ERRO no download:", e)
-
-    finally:
-        spark.stop()  # Parar a SparkSession após o download
+        raise  # Propaga a exceção
 
 def extract_csv(local_zip_path, local_extract_path):
-    # Criar SparkSession
-    spark = SparkSession.builder.appName('Extract - CSV').getOrCreate()
-
     try:
         # Extrair o conteúdo do ZIP diretamente para o local_extract_path
         with ZipFile(local_zip_path, "r") as zip_ref:
-            for file_info in zip_ref.infolist():
-                file_info.filename = file_info.filename.encode('cp437').decode('utf-8')  # Corrigir codificação para Spark
-                zip_ref.extract(file_info, local_extract_path)
+            zip_ref.extractall(local_extract_path)
 
     except Exception as e:
         print("ERRO na extração:", e)
-
-    finally:
-        spark.stop()  # Parar a SparkSession após a extração
+        raise  # Propaga a exceção
 
 def get_csv(file_path):
-    # Criar SparkSession
-    spark = SparkSession.builder.appName('Read - CSV').getOrCreate()
-
     try:
         df = spark.read.format("csv").option("header", True).load(file_path)
         return df
 
     except Exception as e:
         print("ERRO na leitura do CSV:", e)
-
-    finally:
-        spark.stop()  # Parar a SparkSession após a leitura do CSV
-
-# Caminho local para salvar o arquivo ZIP
-local_zip_path = "hdfs:///hdfs/data/order/tmp/dados_brutos"
-
-# Caminho local para extrair os arquivos CSV
-local_extract_path = "hdfs:///hdfs/data/order/tmp/dados_temp"
-
-# Caminho no HDFS para armazenar os arquivos CSV
-hdfs_path = "hdfs:///hdfs/data/order/2000"
-
-date_link = '2000'  # Nome do arquivo ZIP
+        raise  # Propaga a exceção
 
 try:
+    # Caminho local para salvar o arquivo ZIP
+    local_zip_path = "hdfs:///hdfs/data/order/tmp/dados_brutos/{}.zip".format(date_link)
+
+    # Caminho local para extrair os arquivos CSV
+    local_extract_path = "hdfs:///hdfs/data/order/tmp/dados_temp"
+
+    # Caminho no HDFS para armazenar os arquivos CSV
+    hdfs_path = "hdfs:///hdfs/data/order/2000"
+
     # Baixar o CSV diretamente para a pasta local no HDFS
     download_data("https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip".format(date_link), local_zip_path)
 
@@ -75,14 +58,14 @@ try:
     extract_csv(local_zip_path, local_extract_path)
 
     # Listar arquivos extraídos
-    csv_files = [f for f in spark._jvm.java.io.File(local_extract_path).list() if f.endswith('.CSV')]
+    csv_files = [f for f in SparkFiles.get() if f.endswith('.CSV')]
 
     for csv_file in csv_files:
         # Caminho completo do arquivo local
-        local_file_path = spark._jvm.java.io.File(local_extract_path, csv_file).getPath()
+        local_file_path = f"{local_extract_path}/{csv_file}"
 
         # Caminho no HDFS para armazenar os arquivos CSV com seus próprios nomes
-        hdfs_file_path = spark._jvm.java.io.Path(hdfs_path, csv_file).toString()
+        hdfs_file_path = f"{hdfs_path}/{csv_file}"
 
         # Ler CSV e salvar no HDFS
         df = get_csv(local_file_path)
@@ -106,3 +89,7 @@ finally:
         print("ARQUIVOS TEMPORÁRIOS EXCLUÍDOS")
     except Exception as e:
         print("ERRO ao remover arquivos temporários:", e)
+
+    finally:
+        # Encerrar a SparkSession
+        spark.stop()
