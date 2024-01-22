@@ -1,101 +1,104 @@
-from pyspark.sql import SparkSession
-from pyspark import SparkFiles
+import os
+import zipfile
 import requests
-from zipfile import ZipFile
+from pathlib import Path
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType
+import shutil
 
-# Inicializa a sessão do Spark
-spark = SparkSession.builder.appName("YourAppName").getOrCreate()
+# Função para criar diretórios locais se não existirem
+def create_directories():
+    directories = ['/Zip', '/CSVs']
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(f'Directory created: {directory}')
 
-def download_data(url, local_zip_path):
-    try:
-        # Baixar o arquivo ZIP
-        response = requests.get(url)
+# Função para baixar o arquivo zip
+def download_zip(zip_url, zip_dir):
+    response = requests.get(zip_url)
+    zip_file_path = os.path.join(zip_dir, 'dados.zip')
 
-        # Certificar-se de que o diretório pai existe
-        local_zip_dir = SparkFiles.getRootDirectory()
-        local_zip_path = f"{local_zip_dir}/{local_zip_path}"
+    with open(zip_file_path, 'wb') as zip_file:
+        zip_file.write(response.content)
 
-        with open(local_zip_path, "wb") as zip_file:
-            zip_file.write(response.content)
+    return zip_file_path
 
-    except Exception as e:
-        print("ERRO no download:", e)
-        raise  # Propaga a exceção
+# Função para extrair arquivos CSV do zip para o diretório /CSVs
+def extract_csv_from_zip(zip_file, csv_dir):
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        # Criar diretório se não existir
+        os.makedirs(csv_dir, exist_ok=True)
+        
+        # Extrair todos os arquivos do zip
+        zip_ref.extractall(csv_dir)
+        
+        # Retornar o diretório onde os arquivos foram extraídos
+        print(f'Files extracted to: {csv_dir}')
+        return csv_dir
 
-def extract_csv(local_zip_path, local_extract_path):
-    try:
-        # Extrair o conteúdo do ZIP diretamente para o local_extract_path
-        with ZipFile(local_zip_path, "r") as zip_ref:
-            zip_ref.extractall(local_extract_path)
+# Função para renomear os arquivos removendo espaços
+def rename_files_with_spaces(csv_dir):
+    for root, dirs, files in os.walk(csv_dir):
+        for file in files:
+            if ' ' in file:
+                new_file = file.replace(' ', '_')
+                os.rename(os.path.join(root, file), os.path.join(root, new_file))
+                print(f'Renamed file: {file} -> {new_file}')
 
-    except Exception as e:
-        print("ERRO na extração:", e)
-        raise  # Propaga a exceção
+# Função para ler CSVs, criar DataFrames e exportar para o HDFS
+def process_csvs(zip_dir, csv_parent_dir, hdfs_dir):
+    spark = SparkSession.builder.appName('CSVProcessing').getOrCreate()
 
-def get_csv(file_path):
-    try:
-        df = spark.read.format("csv").option("header", True).load(file_path)
-        return df
+    # Combinar o diretório pai CSV com o subdiretório contendo os arquivos CSV (por exemplo, '2000')
+    csv_dir = os.path.join(csv_parent_dir, os.listdir(csv_parent_dir)[0])
 
-    except Exception as e:
-        print("ERRO na leitura do CSV:", e)
-        raise  # Propaga a exceção
+    for csv_file in os.listdir(csv_dir):
+        csv_file_path = os.path.join(csv_dir, csv_file)
 
+        # Obtém o nome do arquivo sem extensão
+        file_name = Path(csv_file).stem
 
-# Ano
-date_link = "2000"
+        # Salva o CSV no HDFS usando a sessão Spark
+        df = spark.read.format("csv").option("header", "false").option("delimiter", ";").load(f"file://{csv_file_path}")
 
-# Caminho local para salvar o arquivo ZIP
-local_zip_path = "/hdfs/data/order/tmp/dados_brutos"
+        # Corrige o caminho para o HDFS
+        hdfs_path = os.path.join(hdfs_dir, file_name, "input", f"{file_name}.csv")
 
-# Caminho local para extrair os arquivos CSV
-local_extract_path = "/hdfs/data/order/tmp/dados_temp"
+        # Salva o CSV no HDFS
+        df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(hdfs_path)
 
-# Caminho no HDFS para armazenar os arquivos CSV
-hdfs_path = "/hdfs/data/order/{}".format(date_link)
+# Função para apagar diretórios locais
+def delete_directories():
+    directories = ['/Zip', '/CSVs']
+    for directory in directories:
+        if os.path.exists(directory):
+            shutil.rmtree(directory)
+            print(f'Directory deleted: {directory}')
 
+# Diretórios locais e no HDFS
+local_zip_dir = '/Zip'
+local_csv_dir = '/CSVs'
+hdfs_dir = '/hdfs/data/order/tmp/dados_temp'
+date_of_data = '2000'
 
-try:
-    # Baixar o CSV diretamente para a pasta local no HDFS
-    download_data("https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip".format(date_link), local_zip_path)
-    
-    # Extrair o CSV
-    extract_csv(local_zip_path, local_extract_path)
+# Link para download do arquivo zip
+zip_url = ('https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip'.format(date_of_data))
 
-    # Listar arquivos extraídos
-    csv_files = [f for f in SparkFiles.get() if f.endswith('.CSV')]
+# Passo 1: Criar diretórios locais
+create_directories()
 
-    for csv_file in csv_files:
-        # Caminho completo do arquivo local
-        local_file_path = f"{local_extract_path}/{csv_file}"
+# Passo 2: Baixar o arquivo zip
+zip_file_path = download_zip(zip_url, local_zip_dir)
 
-        # Caminho no HDFS para armazenar os arquivos CSV com seus próprios nomes
-        hdfs_file_path = f"{hdfs_path}/{csv_file}"
+# Passo 3: Extrair arquivos CSV
+extracted_csv_dir = extract_csv_from_zip(zip_file_path, local_csv_dir)
 
-        # Ler CSV e salvar no HDFS
-        df = get_csv(local_file_path)
-        df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(hdfs_file_path)
+# Passo adicional: Renomear arquivos removendo espaços
+rename_files_with_spaces(extracted_csv_dir)
 
-    print("ARQUIVOS CSV BAIXADOS NO HDFS")
+# Passo 4: Processar CSVs e exportar para o HDFS
+process_csvs(local_csv_dir, extracted_csv_dir, hdfs_dir)
 
-except Exception as e:
-    print("ERRO:", e)
-
-finally:
-    try:
-        # Remover os arquivos temporários no HDFS
-        if spark._jvm.java.io.File(local_extract_path).exists():
-            spark._jvm.org.apache.hadoop.fs.FileUtil.fullyDelete(spark._jvm.org.apache.hadoop.fs.Path(local_extract_path))
-
-        # Verificar a existência do arquivo antes de removê-lo no HDFS
-        if spark._jvm.java.io.File(local_zip_path).exists():
-            spark._jvm.org.apache.hadoop.fs.FileUtil.fullyDelete(spark._jvm.org.apache.hadoop.fs.Path(local_zip_path))
-
-        print("ARQUIVOS TEMPORÁRIOS EXCLUÍDOS")
-    except Exception as e:
-        print("ERRO ao remover arquivos temporários:", e)
-
-    finally:
-        # Encerrar a SparkSession
-        spark.stop()
-
+# Passo 5: Apagar diretórios locais
+delete_directories()

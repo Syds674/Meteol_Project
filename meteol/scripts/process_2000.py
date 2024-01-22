@@ -1,55 +1,76 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import lit
-import os
+from pyspark.sql.types import StructType, StructField, StringType, FloatType
 
-def get_files_hdfs(hdfs_path):
-    # Lista os arquivos CSV na pasta especificada no HDFS
-    return [f for f in os.listdir(hdfs_path) if f.endswith('.csv')]
+# 1. Criar uma sessão Spark
+spark = SparkSession.builder.appName('MergeCSVToHive').enableHiveSupport().getOrCreate()
 
-def merge_and_save_as_table(table_name, dfs):
-    # Mescla os DataFrames e salva a tabela no Hive
-    merged_df = dfs[0]
-    for df in dfs[1:]:
-        merged_df = merged_df.union(df.select(merged_df.columns))
+# 2. Definir o schema
+schema = StructType([
+    StructField("REGIAO", StringType(), True),
+    StructField("UF", StringType(), True),
+    StructField("ESTACAO", StringType(), True),
+    StructField("CODIGO (WMO)", StringType(), True),
+    StructField("LATITUDE", FloatType(), True),
+    StructField("LONGITUDE", FloatType(), True),
+    StructField("ALTITUDE", FloatType(), True),
+    StructField("DATA DE FUNDACAO", StringType(), True),
+    StructField("Data", StringType(), True),
+    StructField("Hora UTC", StringType(), True),
+    StructField("PRECIPITACAO TOTAL, HORARIO (mm)", FloatType(), True),
+    StructField("PRESSAO ATMOSFERICA AO NIVEL DA ESTACAO, HORARIA (mB)", FloatType(), True),
+    StructField("PRESSAO ATMOSFERICA MAX.NA HORA ANT. (AUT) (mB)", FloatType(), True),
+    StructField("PRESSAO ATMOSFERICA MIN. NA HORA ANT. (AUT) (mB)", FloatType(), True),
+    StructField("RADIACAO GLOBAL (Kj/m²)", FloatType(), True),
+    StructField("TEMPERATURA DO AR - BULBO SECO, HORARIA (°C)", FloatType(), True),
+    StructField("TEMPERATURA DO PONTO DE ORVALHO (°C)", FloatType(), True),
+    StructField("TEMPERATURA MAXIMA NA HORA ANT. (AUT) (°C)", FloatType(), True),
+    StructField("TEMPERATURA MINIMA NA HORA ANT. (AUT) (°C)", FloatType(), True),
+    StructField("TEMPERATURA ORVALHO MAX. NA HORA ANT. (AUT) (°C)", FloatType(), True),
+    StructField("TEMPERATURA ORVALHO MIN. NA HORA ANT. (AUT) (°C)", FloatType(), True),
+    StructField("UMIDADE REL. MAX. NA HORA ANT. (AUT) (%)", FloatType(), True),
+    StructField("UMIDADE REL. MIN. NA HORA ANT. (AUT) (%)", FloatType(), True),
+    StructField("UMIDADE RELATIVA DO AR, HORARIA (%)", FloatType(), True),
+    StructField("VENTO, DIRECAO HORARIA (gr) (° (gr))", FloatType(), True),
+    StructField("VENTO, RAJADA MAXIMA (m/s)", FloatType(), True),
+    StructField("VENTO, VELOCIDADE HORARIA (m/s)", FloatType(), True)
+])
+
+# ...
+
+# 3. Ler cada arquivo CSV e mesclar em um DataFrame
+csv_parent_dir = '/hdfs/data/order/tmp/dados_temp'
+
+# Lista os diretórios no HDFS
+csv_dirs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())\
+    .listStatus(spark._jvm.org.apache.hadoop.fs.Path(csv_parent_dir))
+
+merged_df = None
+
+for csv_dir_status in csv_dirs:
+    csv_dir_path = csv_dir_status.getPath().toString()
     
-    # Adiciona uma coluna 'source' para identificar a origem dos dados
-    merged_df = merged_df.withColumn('source', lit(table_name))
-    
-    # Salva a tabela no Hive
-    merged_df.write.mode('overwrite').format('orc').saveAsTable("meterio.{}".format(table_name))
+    # Verifica se o caminho é um diretório
+    if csv_dir_status.isDirectory():
+        # Lê todos os arquivos CSV no diretório
+        df = spark.read.option("delimiter", ";").schema(schema).csv(csv_dir_path + "/input")
+        
+        # Renomeia as colunas com alias substituindo caracteres inválidos
+        for col_name in df.columns:
+            new_col_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in col_name.lower())
+            df = df.withColumnRenamed(col_name, new_col_name)
+        
+        # Combina DataFrames
+        if merged_df is None:
+            merged_df = df
+        else:
+            merged_df = merged_df.union(df)
 
-date_path = '2000'
+# 4. Enviar o DataFrame para o Hive
+hive_database_name = 'meterio'
+hive_table_name = 'table_2000'  # Alterado para um nome válido no Hive
 
-# Caminho no HDFS onde estão os arquivos CSV
-hdfs_path = "/hdfs/data/order/{}".format(date_path)
+# Salvando o DataFrame como uma tabela permanente no Hive
+merged_df.write.mode('overwrite').saveAsTable(f"{hive_database_name}.{hive_table_name}")
 
-try:
-    spark = SparkSession.builder \
-        .master("yarn") \
-        .appName("Ingestao - dados para Hive") \
-        .enableHiveSupport() \
-        .getOrCreate()
-
-    # Lista os arquivos na pasta do HDFS
-    csv_files = get_files_hdfs(hdfs_path)
-
-    # Lista para armazenar os DataFrames lidos de cada arquivo CSV
-    dfs = []
-
-    for csv_file in csv_files:
-        # Caminho completo do arquivo no HDFS
-        hdfs_file_path = os.path.join(hdfs_path, csv_file)
-
-        # Lê o CSV
-        df = spark.read.csv(hdfs_file_path, header=True)
-        # Adiciona o DataFrame à lista
-        dfs.append(df)
-
-    # Gera o nome da tabela mesclada
-    merged_table_name = "merged_{}".format(date_path)
-
-    # Mescla os DataFrames e salva como tabela no Hive
-    merge_and_save_as_table(merged_table_name, dfs)
-
-except Exception as e:
-    print("ERRO:", e)
+# 5. Encerrar a sessão Spark
+spark.stop()
