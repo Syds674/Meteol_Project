@@ -35,8 +35,6 @@ schema = StructType([
     StructField("VENTO, VELOCIDADE HORARIA (m/s)", FloatType(), True)
 ])
 
-# ...
-
 # 3. Ler cada arquivo CSV e mesclar em um DataFrame
 csv_parent_dir = '/hdfs/data/order/tmp/dados_temp'
 
@@ -67,7 +65,7 @@ for csv_dir_status in csv_dirs:
 
 # 4. Enviar o DataFrame para o Hive
 hive_database_name = 'meterio'
-hive_table_name = 'table_2000'  # Alterado para um nome válido no Hive
+hive_table_name = 'table_2023'  # Alterado para um nome válido no Hive
 
 # Salvando o DataFrame como uma tabela permanente no Hive
 merged_df.write.mode('overwrite').saveAsTable(f"{hive_database_name}.{hive_table_name}")

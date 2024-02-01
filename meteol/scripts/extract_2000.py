@@ -25,9 +25,10 @@ def download_zip(zip_url, zip_dir):
     return zip_file_path
 
 # Função para extrair arquivos CSV do zip para o diretório /CSVs
-def extract_csv_from_zip(zip_file, csv_dir):
+def extract_csv_from_zip(zip_file, csv_parent_dir):
     with zipfile.ZipFile(zip_file, 'r') as zip_ref:
         # Criar diretório se não existir
+        csv_dir = os.path.join(csv_parent_dir, os.path.splitext(os.path.basename(zip_file))[0])
         os.makedirs(csv_dir, exist_ok=True)
         
         # Extrair todos os arquivos do zip
@@ -47,40 +48,48 @@ def rename_files_with_spaces(csv_dir):
                 print(f'Renamed file: {file} -> {new_file}')
 
 # Função para ler CSVs, criar DataFrames e exportar para o HDFS
-def process_csvs(zip_dir, csv_parent_dir, hdfs_dir):
+def process_csvs(csv_parent_dir, hdfs_dir):
     spark = SparkSession.builder.appName('CSVProcessing').getOrCreate()
 
-    # Combinar o diretório pai CSV com o subdiretório contendo os arquivos CSV (por exemplo, '2000')
-    csv_dir = os.path.join(csv_parent_dir, os.listdir(csv_parent_dir)[0])
+    for root, dirs, files in os.walk(csv_parent_dir):
+        for csv_file in files:
+            csv_file_path = os.path.join(root, csv_file)
 
-    for csv_file in os.listdir(csv_dir):
-        csv_file_path = os.path.join(csv_dir, csv_file)
+            # Obtém o nome do arquivo sem extensão
+            file_name = Path(csv_file).stem
 
-        # Obtém o nome do arquivo sem extensão
-        file_name = Path(csv_file).stem
+            # Salva o CSV no HDFS usando a sessão Spark
+            df = spark.read.format("csv").option("header", "false").option("delimiter", ";").load(f"file://{csv_file_path}")
 
-        # Salva o CSV no HDFS usando a sessão Spark
-        df = spark.read.format("csv").option("header", "false").option("delimiter", ";").load(f"file://{csv_file_path}")
+            # Corrige o caminho para o HDFS
+            hdfs_path = os.path.join(hdfs_dir, file_name, "input", f"{file_name}.csv")
 
-        # Corrige o caminho para o HDFS
-        hdfs_path = os.path.join(hdfs_dir, file_name, "input", f"{file_name}.csv")
-
-        # Salva o CSV no HDFS
-        df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(hdfs_path)
+            # Salva o CSV no HDFS
+            df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(hdfs_path)
 
 # Função para apagar diretórios locais
-def delete_directories():
+def delete_directory_contents():
     directories = ['/Zip', '/CSVs']
     for directory in directories:
         if os.path.exists(directory):
-            shutil.rmtree(directory)
-            print(f'Directory deleted: {directory}')
+            # Itera sobre os arquivos e subdiretórios no diretório
+            for root, dirs, files in os.walk(directory):
+                # Exclui os arquivos no diretório
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    os.remove(file_path)
+                    print(f'File deleted: {file_path}')
+                # Exclui os subdiretórios no diretório
+                for dir in dirs:
+                    dir_path = os.path.join(root, dir)
+                    shutil.rmtree(dir_path)
+                    print(f'Directory deleted: {dir_path}')
 
 # Diretórios locais e no HDFS
 local_zip_dir = '/Zip'
 local_csv_dir = '/CSVs'
 hdfs_dir = '/hdfs/data/order/tmp/dados_temp'
-date_of_data = '2000'
+date_of_data = '2023'
 
 # Link para download do arquivo zip
 zip_url = ('https://portal.inmet.gov.br/uploads/dadoshistoricos/{}.zip'.format(date_of_data))
@@ -98,7 +107,7 @@ extracted_csv_dir = extract_csv_from_zip(zip_file_path, local_csv_dir)
 rename_files_with_spaces(extracted_csv_dir)
 
 # Passo 4: Processar CSVs e exportar para o HDFS
-process_csvs(local_csv_dir, extracted_csv_dir, hdfs_dir)
+process_csvs(extracted_csv_dir, hdfs_dir)
 
 # Passo 5: Apagar diretórios locais
-delete_directories()
+delete_directory_contents()

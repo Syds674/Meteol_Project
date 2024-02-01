@@ -14,11 +14,7 @@ hdfs dfs -chmod 775 /hdfs/data/order
 hdfs dfs -mkdir /hdfs/data/order/tmp
 hdfs dfs -chmod 775 /hdfs/data/order/tmp
 
-hdfs dfs -mkdir /hdfs/data/order/tmp/dados_brutos
-hdfs dfs -chmod 775 /hdfs/data/order/tmp/dados_brutos
-
 hdfs dfs -mkdir /hdfs/data/order/tmp/dados_temp
 hdfs dfs -chmod 775 /hdfs/data/order/tmp/dados_temp
 
-hdfs dfs -mkdir /hdfs/data/order/2000
-hdfs dfs -chmod 775 /hdfs/data/order/2000
+
